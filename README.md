@@ -7,9 +7,9 @@ Petite PWA pour voir ses dépenses fixes (abonnements, loyer, assurances…) et 
 - **Vue du mois** : toutes les échéances du mois, triées par date, avec le total, ce qui est déjà payé et ce qu'il reste à payer.
 - **Mois prochain** en un clic, et navigation libre entre les mois.
 - **Alerte « à prévoir »** quand une dépense non mensuelle (annuelle, trimestrielle, ponctuelle) tombe dans le mois.
-- **Cases « payé »** pour cocher chaque échéance au fur et à mesure.
+- **Payé automatiquement** : une échéance se coche toute seule le jour où sa date arrive (on peut la décocher ou la cocher en avance à la main).
 - **Fréquences** : mensuelle, trimestrielle, semestrielle, annuelle ou ponctuelle (avec date de fin optionnelle).
-- **Catégories** avec totaux par catégorie, et catégorie devinée à partir du nom (Netflix, EDF, Free, loyer…).
+- **Catégories personnalisées** : tu crées les tiennes (nom, emoji, couleur) dans Réglages ou directement depuis le formulaire, avec totaux par catégorie.
 - **Vue « Mes dépenses »** : coût fixe moyen par mois et par an, prochaine échéance de chaque dépense.
 - **Hors-ligne** et installable sur l'écran d'accueil.
 - **Données stockées uniquement sur le téléphone** (aucun compte, aucun serveur), avec export / import JSON pour les sauvegarder.

@@ -364,7 +364,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
   color: var(--muted);
 }
 .field[hidden] { display: none; }
-.field input, .field select {
+.field input:not([type=radio]), .field select {
   display: block;
   width: 100%;
   min-height: 46px;
@@ -402,6 +402,23 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 }
 .chips input:checked + span { background: var(--accent); color: var(--accent-text); }
 .chips input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.swatches { display: flex; flex-wrap: wrap; gap: 12px; }
+.swatches label { position: relative; }
+.swatches input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.swatches span {
+  display: block;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--c);
+  cursor: pointer;
+}
+.swatches input:checked + span { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--c); }
+.swatches input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 6px; }
+
+.add-cat { margin-top: 10px; background: var(--surface); box-shadow: var(--shadow); color: var(--accent); }
+.chev-right { flex: none; font-size: 22px; color: var(--muted); }
 
 .help { margin: -6px 4px 14px; font-size: 13px; color: var(--muted); }
 .form-error { margin: 0 0 12px; font-size: 14px; color: var(--danger); }

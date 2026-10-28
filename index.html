@@ -72,6 +72,10 @@
     <section id="view-settings" class="view" hidden>
       <h1>Réglages</h1>
 
+      <h2 class="section"><span>Mes catégories</span></h2>
+      <ul class="list" id="cat-manage"></ul>
+      <button type="button" class="btn block add-cat" id="add-cat-btn">＋ Ajouter une catégorie</button>
+
       <h2 class="section"><span>Installer l'app</span></h2>
       <div class="card">
         <p id="install-done" hidden>✓ L'app est installée sur cet appareil.</p>
@@ -158,6 +162,33 @@
         </label>
         <p class="form-error" id="form-error" role="alert"></p>
         <button type="button" class="btn danger block" id="delete-btn">Supprimer cette dépense</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Formulaire de catégorie -->
+  <dialog id="cat-dialog" aria-labelledby="cat-title">
+    <form id="cat-form" novalidate>
+      <header class="sheet-head">
+        <button type="button" class="link" data-close>Annuler</button>
+        <h2 id="cat-title">Nouvelle catégorie</h2>
+        <button type="submit" class="link strong">Enregistrer</button>
+      </header>
+      <div class="sheet-body">
+        <label class="field">
+          <span>Nom</span>
+          <input name="name" maxlength="40" placeholder="Ex : Logement, Streaming, Sport" autocomplete="off" required>
+        </label>
+        <label class="field">
+          <span>Emoji (optionnel)</span>
+          <input name="icon" maxlength="8" placeholder="🏠" autocomplete="off">
+        </label>
+        <fieldset class="field">
+          <legend>Couleur</legend>
+          <div class="swatches" id="color-swatches"></div>
+        </fieldset>
+        <p class="form-error" id="cat-error" role="alert"></p>
+        <button type="button" class="btn danger block" id="cat-delete-btn">Supprimer cette catégorie</button>
       </div>
     </form>
   </dialog>

@@ -1,35 +1,11 @@
 'use strict';
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 const STORAGE_KEY = 'budget.v1';
 
-const CATEGORIES = {
-  logement: { label: 'Logement', icon: '🏠', color: '#0f766e' },
-  energie: { label: 'Énergie & eau', icon: '⚡', color: '#ca8a04' },
-  telecom: { label: 'Internet & mobile', icon: '📱', color: '#2563eb' },
-  streaming: { label: 'Streaming & abonnements', icon: '🎬', color: '#db2777' },
-  assurance: { label: 'Assurances', icon: '🛡️', color: '#7c3aed' },
-  transport: { label: 'Transport', icon: '🚗', color: '#ea580c' },
-  sante: { label: 'Santé', icon: '🩺', color: '#059669' },
-  impots: { label: 'Impôts & taxes', icon: '🏛️', color: '#64748b' },
-  banque: { label: 'Banque & crédit', icon: '🏦', color: '#0891b2' },
-  loisirs: { label: 'Loisirs & sport', icon: '🎾', color: '#65a30d' },
-  autre: { label: 'Autre', icon: '📦', color: '#a8a29e' },
-};
-
-// Mots-clés pour pré-remplir la catégorie à partir du nom
-const CATEGORY_HINTS = [
-  [/netflix|spotify|disney|prime video|amazon prime|canal|deezer|youtube|apple|icloud|google one|crunchyroll|max\b|paramount|xbox|playstation|nintendo|abonnement/i, 'streaming'],
-  [/edf|engie|total ?energ|gaz|électricit|electricit|eau\b|veolia|suez/i, 'energie'],
-  [/free|orange|sfr|bouygues|sosh|red by|b&you|internet|box|forfait|mobile|téléphone|telephone/i, 'telecom'],
-  [/loyer|charges|syndic|copro/i, 'logement'],
-  [/mutuelle|médecin|medecin|pharma|dentiste/i, 'sante'],
-  [/assurance|maaf|maif|macif|axa|allianz|matmut|gmf/i, 'assurance'],
-  [/impôt|impot|taxe|urssaf/i, 'impots'],
-  [/crédit|credit|prêt|pret|banque|carte bancaire|frais bancaires/i, 'banque'],
-  [/essence|carburant|navigo|sncf|train|parking|péage|peage|contrôle technique|controle technique|garage|voiture|auto\b/i, 'transport'],
-  [/salle|sport|club|badminton|basic fit|fitness|licence|cotisation/i, 'loisirs'],
-];
+// Couleurs proposées pour les catégories créées par l'utilisateur
+const PALETTE = ['#0f766e', '#2563eb', '#7c3aed', '#db2777', '#dc2626', '#ea580c', '#ca8a04', '#65a30d', '#059669', '#0891b2', '#64748b', '#a8a29e'];
+const NO_CATEGORY = { id: '', name: 'Sans catégorie', icon: '', color: '#a8a29e' };
 
 const FREQUENCIES = {
   monthly: { label: 'Mensuel', months: 1, dateLabel: 'Premier prélèvement', help: 'Se répète chaque mois à ce jour-là.' },
@@ -49,7 +25,11 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const round2 = (n) => Math.round(n * 100) / 100;
 const plural = (n, word) => `${n} ${word}${n > 1 ? 's' : ''}`;
-const categoryOf = (e) => CATEGORIES[e.category] || CATEGORIES.autre;
+const byName = (a, b) => a.name.localeCompare(b.name, 'fr');
+const categoryOf = (e) => state.categories.find((c) => c.id === e.category) || NO_CATEGORY;
+const catColor = (c) => (/^#[0-9a-f]{6}$/i.test(c.color) ? c.color : NO_CATEGORY.color);
+const catIcon = (c) => c.icon || (c.id ? c.name.charAt(0).toUpperCase() : '•');
+const catLabel = (c) => (c.icon ? `${c.icon} ${c.name}` : c.name);
 
 // ---------- Dates (manipulées en 'AAAA-MM-JJ' pour éviter les décalages de fuseau) ----------
 const pad = (n) => String(n).padStart(2, '0');
@@ -114,6 +94,10 @@ function nextOccurrence(e, fromISO) {
   return null;
 }
 
+// Une échéance est considérée payée automatiquement dès que sa date est arrivée.
+// `state.paid[key]` ne garde que les choix manuels qui diffèrent de ce comportement.
+const autoPaid = (date) => date <= todayISO();
+
 function occurrencesIn(y, m) {
   const mk = monthKey(y, m);
   return state.expenses
@@ -121,7 +105,8 @@ function occurrencesIn(y, m) {
       const date = occurrenceIn(e, y, m);
       if (!date) return null;
       const key = `${e.id}@${mk}`;
-      return { e, date, key, paid: !!state.paid[key] };
+      const paid = key in state.paid ? state.paid[key] : autoPaid(date);
+      return { e, date, key, paid };
     })
     .filter(Boolean)
     .sort((a, b) => a.date.localeCompare(b.date) || a.e.name.localeCompare(b.e.name, 'fr'));
@@ -132,15 +117,20 @@ function isValidData(data) {
   return !!data && Array.isArray(data.expenses) && data.expenses.every((e) =>
     e && typeof e.id === 'string' && typeof e.name === 'string' && Number.isFinite(e.amount) &&
     FREQUENCIES[e.frequency] && /^\d{4}-\d{2}-\d{2}$/.test(e.date) &&
-    (!e.end || /^\d{4}-\d{2}-\d{2}$/.test(e.end)));
+    (!e.end || /^\d{4}-\d{2}-\d{2}$/.test(e.end))) &&
+    (!data.categories || (Array.isArray(data.categories) && data.categories.every((c) =>
+      c && typeof c.id === 'string' && typeof c.name === 'string')));
 }
+
+const emptyState = () => ({ expenses: [], categories: [], paid: {} });
+const fromData = (data) => ({ expenses: data.expenses, categories: data.categories || [], paid: data.paid || {} });
 
 function load() {
   try {
     const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (isValidData(data)) return { expenses: data.expenses, paid: data.paid || {} };
+    if (isValidData(data)) return fromData(data);
   } catch (_) { /* stockage indisponible ou corrompu */ }
-  return { expenses: [], paid: {} };
+  return emptyState();
 }
 
 function save() {
@@ -160,7 +150,9 @@ let state = load();
 let view = 'month';
 let cursor = currentMonth();
 let editingId = null;
-let categoryTouched = false;
+let editingCatId = null;
+let catFromExpense = false;
+let lastCategoryValue = '';
 let deferredInstall = null;
 
 // ---------- Rendu : mois ----------
@@ -210,13 +202,13 @@ function renderMonth() {
       const c = categoryOf(it.e);
       const d = parseISO(it.date).d;
       const late = !it.paid && it.date < today;
-      const tags = [`${c.icon} ${esc(c.label)}`];
+      const tags = [esc(catLabel(c))];
       if (it.e.frequency !== 'monthly') tags.push(`<em class="tag-extra">${FREQUENCIES[it.e.frequency].label}</em>`);
-      if (late) tags.push('<em class="tag-late">Date passée</em>');
+      if (late) tags.push('<em class="tag-late">Non payé</em>');
       return `
         <li class="occ${it.paid ? ' is-paid' : ''}">
           <label class="check">
-            <input type="checkbox" data-paid="${it.key}" ${it.paid ? 'checked' : ''} aria-label="${esc(it.e.name)} payé">
+            <input type="checkbox" data-paid="${it.key}" data-date="${it.date}" ${it.paid ? 'checked' : ''} aria-label="${esc(it.e.name)} payé">
             <span></span>
           </label>
           <button type="button" class="row" data-edit="${it.e.id}">
@@ -231,18 +223,18 @@ function renderMonth() {
     }).join('');
   }
 
-  const byCat = {};
+  const byCat = new Map();
   for (const it of items) {
-    const k = CATEGORIES[it.e.category] ? it.e.category : 'autre';
-    byCat[k] = (byCat[k] || 0) + it.e.amount;
+    const c = categoryOf(it.e);
+    byCat.set(c, (byCat.get(c) || 0) + it.e.amount);
   }
-  const entries = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+  const entries = [...byCat].sort((a, b) => b[1] - a[1]);
   const max = entries.length ? entries[0][1] : 1;
   $('#cat-section').hidden = entries.length < 2;
-  $('#cat-list').innerHTML = entries.map(([k, v]) => `
+  $('#cat-list').innerHTML = entries.map(([c, v]) => `
     <li>
-      <div class="cat-row"><span>${CATEGORIES[k].icon} ${esc(CATEGORIES[k].label)}</span><b>${eur.format(round2(v))}</b></div>
-      <div class="bar"><span style="width:${(v / max) * 100}%;background:${CATEGORIES[k].color}"></span></div>
+      <div class="cat-row"><span>${esc(catLabel(c))}</span><b>${eur.format(round2(v))}</b></div>
+      <div class="bar"><span style="width:${(v / max) * 100}%;background:${catColor(c)}"></span></div>
     </li>`).join('');
 }
 
@@ -265,7 +257,7 @@ function subRow({ e, next }) {
   return `
     <li${next ? '' : ' class="is-done"'}>
       <button type="button" class="row" data-edit="${e.id}">
-        <span class="cat-icon" style="--c:${c.color}">${c.icon}</span>
+        <span class="cat-icon" style="--c:${catColor(c)}">${esc(catIcon(c))}</span>
         <span class="info">
           <span class="name">${esc(e.name)}</span>
           <span class="meta">${detail}</span>
@@ -322,6 +314,7 @@ function renderSubs() {
 function render() {
   if (view === 'month') renderMonth();
   if (view === 'subs') renderSubs();
+  if (view === 'settings') renderCategories();
 }
 
 function setView(next) {
@@ -340,8 +333,17 @@ const form = $('#expense-form');
 function fillFormOptions() {
   $('#freq-chips').innerHTML = Object.entries(FREQUENCIES).map(([k, f]) =>
     `<label><input type="radio" name="frequency" value="${k}"><span>${f.label}</span></label>`).join('');
-  form.elements.category.innerHTML = Object.entries(CATEGORIES).map(([k, c]) =>
-    `<option value="${k}">${c.icon} ${esc(c.label)}</option>`).join('');
+  $('#color-swatches').innerHTML = PALETTE.map((c) =>
+    `<label><input type="radio" name="color" value="${c}" aria-label="Couleur ${c}"><span style="--c:${c}"></span></label>`).join('');
+}
+
+function fillCategorySelect(selected) {
+  const select = form.elements.category;
+  select.innerHTML = `<option value="">${NO_CATEGORY.name}</option>` +
+    [...state.categories].sort(byName).map((c) => `<option value="${esc(c.id)}">${esc(catLabel(c))}</option>`).join('') +
+    '<option value="__new">＋ Nouvelle catégorie…</option>';
+  lastCategoryValue = state.categories.some((c) => c.id === selected) ? selected : '';
+  select.value = lastCategoryValue;
 }
 
 function updateFormMode() {
@@ -360,7 +362,6 @@ function defaultDate() {
 function openForm(id) {
   const e = id ? state.expenses.find((x) => x.id === id) : null;
   editingId = e ? e.id : null;
-  categoryTouched = !!e;
   form.reset();
   $('#form-error').textContent = '';
   $('#form-title').textContent = e ? 'Modifier' : 'Nouvelle dépense';
@@ -372,7 +373,7 @@ function openForm(id) {
   el.frequency.value = e ? e.frequency : 'monthly';
   el.date.value = e ? e.date : defaultDate();
   el.end.value = e && e.end ? e.end : '';
-  el.category.value = e && CATEGORIES[e.category] ? e.category : 'autre';
+  fillCategorySelect(e ? e.category : '');
   el.note.value = e && e.note ? e.note : '';
   updateFormMode();
   dialog.showModal();
@@ -400,7 +401,7 @@ function submitForm(event) {
   if (!date) { error.textContent = 'Choisis une date.'; el.date.focus(); return; }
   if (end && end < date) { error.textContent = 'La date de fin doit être après le premier prélèvement.'; el.end.focus(); return; }
 
-  const data = { name, amount, frequency, date, end, category: el.category.value, note: el.note.value.trim() };
+  const data = { name, amount, frequency, date, end, category: lastCategoryValue, note: el.note.value.trim() };
   if (editingId) {
     const e = state.expenses.find((x) => x.id === editingId);
     Object.assign(e, data);
@@ -425,11 +426,92 @@ function deleteExpense() {
   toast('Dépense supprimée');
 }
 
-function guessCategory() {
-  if (categoryTouched || editingId) return;
-  const name = form.elements.name.value;
-  const hit = CATEGORY_HINTS.find(([re]) => re.test(name));
-  form.elements.category.value = hit ? hit[1] : 'autre';
+// ---------- Catégories ----------
+const catDialog = $('#cat-dialog');
+const catForm = $('#cat-form');
+
+function renderCategories() {
+  const counts = {};
+  for (const e of state.expenses) counts[e.category] = (counts[e.category] || 0) + 1;
+  $('#cat-manage').innerHTML = state.categories.length
+    ? [...state.categories].sort(byName).map((c) => `
+      <li>
+        <button type="button" class="row" data-edit-cat="${esc(c.id)}">
+          <span class="cat-icon" style="--c:${catColor(c)}">${esc(catIcon(c))}</span>
+          <span class="info">
+            <span class="name">${esc(c.name)}</span>
+            <span class="meta">${plural(counts[c.id] || 0, 'dépense')}</span>
+          </span>
+          <span class="chev-right" aria-hidden="true">›</span>
+        </button>
+      </li>`).join('')
+    : '<li class="empty">Aucune catégorie pour l’instant.<br>Crée les tiennes ci-dessous.</li>';
+}
+
+// `fromExpense` : ouverte depuis le formulaire de dépense, la nouvelle catégorie y sera sélectionnée
+function openCatForm(id, fromExpense = false) {
+  const c = id ? state.categories.find((x) => x.id === id) : null;
+  editingCatId = c ? c.id : null;
+  catFromExpense = fromExpense;
+  catForm.reset();
+  $('#cat-error').textContent = '';
+  $('#cat-title').textContent = c ? 'Modifier la catégorie' : 'Nouvelle catégorie';
+  $('#cat-delete-btn').hidden = !c;
+  catForm.elements.name.value = c ? c.name : '';
+  catForm.elements.icon.value = c ? c.icon : '';
+  catForm.elements.color.value = c ? c.color : PALETTE[state.categories.length % PALETTE.length];
+  catDialog.showModal();
+  if (!c) catForm.elements.name.focus();
+}
+
+function onCatFormClosed() {
+  if (catFromExpense) fillCategorySelect(lastCategoryValue);
+  catFromExpense = false;
+  editingCatId = null;
+}
+
+function submitCatForm(event) {
+  event.preventDefault();
+  const name = catForm.elements.name.value.trim();
+  const error = $('#cat-error');
+  if (!name) { error.textContent = 'Donne un nom à cette catégorie.'; catForm.elements.name.focus(); return; }
+  const duplicate = state.categories.some((c) => c.id !== editingCatId && c.name.toLowerCase() === name.toLowerCase());
+  if (duplicate) { error.textContent = 'Cette catégorie existe déjà.'; catForm.elements.name.focus(); return; }
+
+  const existing = state.categories.find((c) => c.id === editingCatId);
+  const data = {
+    name,
+    icon: catForm.elements.icon.value.trim(),
+    color: catForm.elements.color.value || (existing ? existing.color : PALETTE[0]),
+  };
+  if (existing) {
+    Object.assign(existing, data);
+    toast('Catégorie modifiée');
+  } else {
+    const c = { id: uid(), ...data };
+    state.categories.push(c);
+    if (catFromExpense) lastCategoryValue = c.id;
+    toast('Catégorie créée');
+  }
+  save();
+  catDialog.close();
+  render();
+}
+
+function deleteCategory() {
+  const c = state.categories.find((x) => x.id === editingCatId);
+  if (!c) return;
+  const used = state.expenses.filter((e) => e.category === c.id).length;
+  const message = used
+    ? `Supprimer « ${c.name} » ? ${plural(used, 'dépense')} passer${used > 1 ? 'ont' : 'a'} en « ${NO_CATEGORY.name} ».`
+    : `Supprimer « ${c.name} » ?`;
+  if (!confirm(message)) return;
+  state.categories = state.categories.filter((x) => x.id !== c.id);
+  for (const e of state.expenses) if (e.category === c.id) e.category = '';
+  save();
+  catDialog.close();
+  render();
+  toast('Catégorie supprimée');
 }
 
 // ---------- Sauvegarde ----------
@@ -460,17 +542,19 @@ function importData(event) {
     const data = JSON.parse(text);
     if (!isValidData(data)) throw new Error('invalid');
     if (state.expenses.length && !confirm(`Remplacer tes ${plural(state.expenses.length, 'dépense')} par les ${data.expenses.length} du fichier ?`)) return;
-    state = { expenses: data.expenses, paid: data.paid || {} };
+    state = fromData(data);
     save();
     toast(`${plural(state.expenses.length, 'dépense')} importée${state.expenses.length > 1 ? 's' : ''}`);
+    render();
   }).catch(() => toast('Fichier invalide'));
 }
 
 function resetData() {
   if (!confirm('Effacer toutes tes dépenses de cet appareil ? Cette action est définitive.')) return;
-  state = { expenses: [], paid: {} };
+  state = emptyState();
   save();
   toast('Toutes les données ont été effacées');
+  render();
 }
 
 // ---------- Divers ----------
@@ -503,8 +587,10 @@ function bind() {
   $('#occ-list').addEventListener('change', (e) => {
     const key = e.target.dataset.paid;
     if (!key) return;
-    if (e.target.checked) state.paid[key] = true;
-    else delete state.paid[key];
+    const date = e.target.dataset.date;
+    // On ne garde le choix que s'il diffère du cochage automatique
+    if (e.target.checked === autoPaid(date)) delete state.paid[key];
+    else state.paid[key] = e.target.checked;
     save();
     renderMonth();
   });
@@ -512,16 +598,27 @@ function bind() {
   document.addEventListener('click', (e) => {
     const row = e.target.closest('[data-edit]');
     if (row) openForm(row.dataset.edit);
+    const catRow = e.target.closest('[data-edit-cat]');
+    if (catRow) openCatForm(catRow.dataset.editCat);
   });
 
   $('#add-btn').addEventListener('click', () => openForm(null));
   form.addEventListener('submit', submitForm);
   form.addEventListener('change', (e) => { if (e.target.name === 'frequency') updateFormMode(); });
-  form.elements.name.addEventListener('input', guessCategory);
-  form.elements.category.addEventListener('change', () => { categoryTouched = true; });
+  form.elements.category.addEventListener('change', (e) => {
+    if (e.target.value === '__new') openCatForm(null, true);
+    else lastCategoryValue = e.target.value;
+  });
   dialog.querySelector('[data-close]').addEventListener('click', closeForm);
   dialog.addEventListener('click', (e) => { if (e.target === dialog) closeForm(); });
   $('#delete-btn').addEventListener('click', deleteExpense);
+
+  $('#add-cat-btn').addEventListener('click', () => openCatForm(null));
+  catForm.addEventListener('submit', submitCatForm);
+  catDialog.querySelector('[data-close]').addEventListener('click', () => catDialog.close());
+  catDialog.addEventListener('click', (e) => { if (e.target === catDialog) catDialog.close(); });
+  catDialog.addEventListener('close', onCatFormClosed);
+  $('#cat-delete-btn').addEventListener('click', deleteCategory);
 
   $('#export-btn').addEventListener('click', exportData);
   $('#import-input').addEventListener('change', importData);
