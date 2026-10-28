@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Mes dépenses fixes et ce qu'il faut prévoir ce mois-ci">
+  <meta name="theme-color" content="#f4f5f2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e1312" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Budget">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <title>Budget</title>
+</head>
+<body>
+  <main>
+    <!-- Vue : mois -->
+    <section id="view-month" class="view">
+      <div class="month-nav">
+        <button type="button" class="icon-btn" id="prev-month" aria-label="Mois précédent">‹</button>
+        <div class="month-title">
+          <h1 id="month-label">Mois</h1>
+          <small id="month-hint"></small>
+        </div>
+        <button type="button" class="icon-btn" id="next-month" aria-label="Mois suivant">›</button>
+      </div>
+
+      <div class="segmented" role="group" aria-label="Raccourcis">
+        <button type="button" data-jump="0">Ce mois</button>
+        <button type="button" data-jump="1">Mois prochain</button>
+      </div>
+
+      <div class="card summary">
+        <div class="total-label">Total à prévoir</div>
+        <div class="total" id="month-total">0,00 €</div>
+        <div class="progress" aria-hidden="true"><span id="month-progress"></span></div>
+        <div class="stats">
+          <div class="stat"><small>Déjà payé</small><b id="month-paid">0,00 €</b></div>
+          <div class="stat"><small>Reste à payer</small><b id="month-left">0,00 €</b></div>
+        </div>
+        <p class="callout" id="month-extra" hidden></p>
+      </div>
+
+      <h2 class="section"><span>Échéances</span><span id="month-count"></span></h2>
+      <ul class="list" id="occ-list"></ul>
+
+      <div id="cat-section">
+        <h2 class="section"><span>Par catégorie</span></h2>
+        <ul class="list cats" id="cat-list"></ul>
+      </div>
+    </section>
+
+    <!-- Vue : toutes les dépenses -->
+    <section id="view-subs" class="view" hidden>
+      <h1>Mes dépenses</h1>
+      <div class="card summary">
+        <div class="total-label">Coût fixe moyen par mois</div>
+        <div class="total" id="subs-monthly">0,00 €</div>
+        <div class="stats">
+          <div class="stat"><small>Sur un an</small><b id="subs-yearly">0,00 €</b></div>
+          <div class="stat"><small>Récurrentes</small><b id="subs-count">0</b></div>
+        </div>
+      </div>
+      <div id="subs-groups"></div>
+    </section>
+
+    <!-- Vue : réglages -->
+    <section id="view-settings" class="view" hidden>
+      <h1>Réglages</h1>
+
+      <h2 class="section"><span>Installer l'app</span></h2>
+      <div class="card">
+        <p id="install-done" hidden>✓ L'app est installée sur cet appareil.</p>
+        <div id="install-help">
+          <p class="muted"><b>iPhone</b> : dans Safari, touche le bouton Partager puis « Sur l’écran d’accueil ».</p>
+          <p class="muted"><b>Android</b> : dans Chrome, menu ⋮ puis « Installer l’application ».</p>
+          <button type="button" class="btn primary" id="install-btn" hidden>Installer maintenant</button>
+        </div>
+      </div>
+
+      <h2 class="section"><span>Sauvegarde</span></h2>
+      <div class="card">
+        <p class="muted">Tes données restent uniquement sur cet appareil. Exporte-les de temps en temps pour ne rien perdre ou pour les transférer sur un autre téléphone.</p>
+        <div class="row-actions">
+          <button type="button" class="btn" id="export-btn">Exporter</button>
+          <label class="btn" for="import-input">Importer</label>
+          <input type="file" id="import-input" accept="application/json,.json" hidden>
+        </div>
+      </div>
+
+      <h2 class="section"><span>Données</span></h2>
+      <div class="card">
+        <button type="button" class="btn danger block" id="reset-btn">Tout effacer</button>
+      </div>
+
+      <p class="muted center" id="version"></p>
+    </section>
+  </main>
+
+  <button type="button" class="fab" id="add-btn" aria-label="Ajouter une dépense">+</button>
+
+  <nav class="tabbar" aria-label="Navigation">
+    <button type="button" data-view="month" class="active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
+      Mois
+    </button>
+    <button type="button" data-view="subs">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></svg>
+      Dépenses
+    </button>
+    <button type="button" data-view="settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      Réglages
+    </button>
+  </nav>
+
+  <!-- Formulaire d'ajout / modification -->
+  <dialog id="form-dialog" aria-labelledby="form-title">
+    <form id="expense-form" novalidate>
+      <header class="sheet-head">
+        <button type="button" class="link" data-close>Annuler</button>
+        <h2 id="form-title">Nouvelle dépense</h2>
+        <button type="submit" class="link strong">Enregistrer</button>
+      </header>
+      <div class="sheet-body">
+        <label class="field">
+          <span>Nom</span>
+          <input name="name" maxlength="60" placeholder="Ex : Netflix, loyer, assurance auto" autocomplete="off" required>
+        </label>
+        <label class="field">
+          <span>Montant (€)</span>
+          <input name="amount" inputmode="decimal" placeholder="0,00" autocomplete="off" required>
+        </label>
+        <fieldset class="field">
+          <legend>Fréquence</legend>
+          <div class="chips" id="freq-chips"></div>
+        </fieldset>
+        <label class="field">
+          <span id="date-label">Premier prélèvement</span>
+          <input type="date" name="date" required>
+        </label>
+        <p class="help" id="date-help"></p>
+        <label class="field" id="end-field">
+          <span>Date de fin (optionnel)</span>
+          <input type="date" name="end">
+        </label>
+        <label class="field">
+          <span>Catégorie</span>
+          <select name="category"></select>
+        </label>
+        <label class="field">
+          <span>Note (optionnel)</span>
+          <input name="note" maxlength="120" autocomplete="off">
+        </label>
+        <p class="form-error" id="form-error" role="alert"></p>
+        <button type="button" class="btn danger block" id="delete-btn">Supprimer cette dépense</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
