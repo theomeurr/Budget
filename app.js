@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const STORAGE_KEY = 'budget.v1';
 
 // Couleurs proposées pour les catégories créées par l'utilisateur
@@ -98,18 +98,26 @@ function nextOccurrence(e, fromISO) {
 // `state.paid[key]` ne garde que les choix manuels qui diffèrent de ce comportement.
 const autoPaid = (date) => date <= todayISO();
 
-function occurrencesIn(y, m) {
-  const mk = monthKey(y, m);
-  return state.expenses
+const isPlanned = (e) => e.frequency === 'once';
+const subscriptions = () => state.expenses.filter((e) => !isPlanned(e));
+const plannedExpenses = () => state.expenses.filter(isPlanned);
+const byDate = (a, b) => a.date.localeCompare(b.date) || a.e.name.localeCompare(b.e.name, 'fr');
+const sumAmounts = (rows) => round2(rows.reduce((s, x) => s + x.e.amount, 0));
+
+function toOccurrence(e, date) {
+  const { y, m } = parseISO(date);
+  const key = `${e.id}@${monthKey(y, m)}`;
+  return { e, date, key, paid: key in state.paid ? state.paid[key] : autoPaid(date) };
+}
+
+function occurrencesIn(expenses, y, m) {
+  return expenses
     .map((e) => {
       const date = occurrenceIn(e, y, m);
-      if (!date) return null;
-      const key = `${e.id}@${mk}`;
-      const paid = key in state.paid ? state.paid[key] : autoPaid(date);
-      return { e, date, key, paid };
+      return date && toOccurrence(e, date);
     })
     .filter(Boolean)
-    .sort((a, b) => a.date.localeCompare(b.date) || a.e.name.localeCompare(b.e.name, 'fr'));
+    .sort(byDate);
 }
 
 // ---------- Stockage local ----------
@@ -147,80 +155,92 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString
 
 // ---------- État ----------
 let state = load();
-let view = 'month';
+let view = 'subs';
+let subsMode = 'month'; // 'month' : échéances d'un mois, 'all' : liste de tous les abonnements
 let cursor = currentMonth();
 let editingId = null;
+let formKind = 'sub'; // 'sub' : abonnement, 'planned' : dépense à prévoir
 let editingCatId = null;
 let catFromExpense = false;
 let lastCategoryValue = '';
 let deferredInstall = null;
 
-// ---------- Rendu : mois ----------
-function renderMonth() {
-  const { y, m } = cursor;
-  const today = todayISO();
-  const now = currentMonth();
-  const offset = (y - now.y) * 12 + (m - now.m);
+// ---------- Rendu commun ----------
+function occRow(it) {
+  const c = categoryOf(it.e);
+  const late = !it.paid && it.date < todayISO();
+  const tags = [esc(catLabel(c))];
+  if (!isPlanned(it.e) && it.e.frequency !== 'monthly') tags.push(`<em class="tag-extra">${FREQUENCIES[it.e.frequency].label}</em>`);
+  if (isPlanned(it.e) && it.e.note) tags.push(esc(it.e.note));
+  if (late) tags.push('<em class="tag-late">Non payé</em>');
+  return `
+    <li class="occ${it.paid ? ' is-paid' : ''}">
+      <label class="check">
+        <input type="checkbox" data-paid="${it.key}" data-date="${it.date}" ${it.paid ? 'checked' : ''} aria-label="${esc(it.e.name)} payé">
+        <span></span>
+      </label>
+      <button type="button" class="row" data-edit="${it.e.id}">
+        <span class="date"><b>${parseISO(it.date).d}</b><small>${fmtShortMonth.format(isoToDate(it.date)).replace('.', '')}</small></span>
+        <span class="info">
+          <span class="name">${esc(it.e.name)}</span>
+          <span class="meta">${tags.join(' · ')}</span>
+        </span>
+        <span class="amount">${eur.format(it.e.amount)}</span>
+      </button>
+    </li>`;
+}
 
+function section(title, right, rowsHtml, collapsed = false) {
+  const head = `<h2 class="section"><span>${collapsed ? '<span class="chev">›</span> ' : ''}${title}</span><span>${right}</span></h2>`;
+  const list = `<ul class="list">${rowsHtml}</ul>`;
+  return collapsed ? `<details class="group"><summary>${head}</summary>${list}</details>` : head + list;
+}
+
+const emptyList = (html) => `<ul class="list"><li class="empty">${html}</li></ul>`;
+
+// ---------- Rendu : abonnements ----------
+function renderSubs() {
+  const now = currentMonth();
+  const offset = (cursor.y - now.y) * 12 + (cursor.m - now.m);
+  const all = subsMode === 'all';
+  document.querySelectorAll('[data-jump]').forEach((b) => b.classList.toggle('active',
+    b.dataset.jump === 'all' ? all : !all && Number(b.dataset.jump) === offset));
+  $('#subs-month').hidden = all;
+  $('#subs-all').hidden = !all;
+  if (all) renderSubsAll();
+  else renderSubsMonth(offset);
+}
+
+function renderSubsMonth(offset) {
+  const { y, m } = cursor;
   $('#month-label').textContent = cap(fmtMonthYear.format(new Date(y, m, 1)));
   $('#month-hint').textContent = { '-1': 'Mois dernier', 0: 'Ce mois-ci', 1: 'Mois prochain' }[offset] || '';
-  document.querySelectorAll('[data-jump]').forEach((b) => b.classList.toggle('active', Number(b.dataset.jump) === offset));
 
-  const items = occurrencesIn(y, m);
-  let total = 0;
-  let paid = 0;
-  const extras = [];
-  for (const it of items) {
-    total += it.e.amount;
-    if (it.paid) paid += it.e.amount;
-    if (it.e.frequency !== 'monthly') extras.push(it);
-  }
-  total = round2(total);
-  paid = round2(paid);
-
+  const items = occurrencesIn(subscriptions(), y, m);
+  const total = sumAmounts(items);
+  const paid = sumAmounts(items.filter((it) => it.paid));
   $('#month-total').textContent = eur.format(total);
   $('#month-paid').textContent = eur.format(paid);
   $('#month-left').textContent = eur.format(round2(total - paid));
   $('#month-progress').style.width = total ? `${(paid / total) * 100}%` : '0';
-  $('#month-count').textContent = items.length ? `${items.filter((it) => it.paid).length}/${items.length} payées` : '';
+  $('#month-count').textContent = items.length ? `${items.filter((it) => it.paid).length}/${items.length} payés` : '';
 
+  // Les abonnements non mensuels (annuel, trimestriel…) sont faciles à oublier : on les signale
+  const periodic = items.filter((it) => it.e.frequency !== 'monthly');
   const extra = $('#month-extra');
-  extra.hidden = !extras.length;
-  if (extras.length) {
-    const sum = round2(extras.reduce((s, it) => s + it.e.amount, 0));
-    const names = extras.map((it) => esc(it.e.name)).join(', ');
-    extra.innerHTML = `⚠️ À prévoir en plus des mensualités : <b>${eur.format(sum)}</b> (${names})`;
+  extra.hidden = !periodic.length;
+  if (periodic.length) {
+    const names = periodic.map((it) => esc(it.e.name)).join(', ');
+    extra.innerHTML = `⚠️ En plus des mensuels : <b>${eur.format(sumAmounts(periodic))}</b> (${names})`;
   }
 
   const list = $('#occ-list');
   if (!items.length) {
-    list.innerHTML = state.expenses.length
-      ? '<li class="empty">Rien de prévu ce mois-ci 🎉</li>'
-      : '<li class="empty">Aucune dépense pour l’instant.<br>Touche <b>+</b> pour ajouter ton premier abonnement.</li>';
+    list.innerHTML = subscriptions().length
+      ? '<li class="empty">Aucun prélèvement ce mois-ci 🎉</li>'
+      : '<li class="empty">Aucun abonnement pour l’instant.<br>Touche <b>+</b> pour ajouter le premier.</li>';
   } else {
-    list.innerHTML = items.map((it) => {
-      const c = categoryOf(it.e);
-      const d = parseISO(it.date).d;
-      const late = !it.paid && it.date < today;
-      const tags = [esc(catLabel(c))];
-      if (it.e.frequency !== 'monthly') tags.push(`<em class="tag-extra">${FREQUENCIES[it.e.frequency].label}</em>`);
-      if (late) tags.push('<em class="tag-late">Non payé</em>');
-      return `
-        <li class="occ${it.paid ? ' is-paid' : ''}">
-          <label class="check">
-            <input type="checkbox" data-paid="${it.key}" data-date="${it.date}" ${it.paid ? 'checked' : ''} aria-label="${esc(it.e.name)} payé">
-            <span></span>
-          </label>
-          <button type="button" class="row" data-edit="${it.e.id}">
-            <span class="date"><b>${d}</b><small>${fmtShortMonth.format(isoToDate(it.date)).replace('.', '')}</small></span>
-            <span class="info">
-              <span class="name">${esc(it.e.name)}</span>
-              <span class="meta">${tags.join(' · ')}</span>
-            </span>
-            <span class="amount">${eur.format(it.e.amount)}</span>
-          </button>
-        </li>`;
-    }).join('');
+    list.innerHTML = items.map(occRow).join('');
   }
 
   const byCat = new Map();
@@ -238,20 +258,13 @@ function renderMonth() {
     </li>`).join('');
 }
 
-// ---------- Rendu : toutes les dépenses ----------
 function subRow({ e, next }) {
   const c = categoryOf(e);
   const f = FREQUENCIES[e.frequency];
   let detail;
-  if (e.frequency === 'once') {
-    detail = `Le ${fmtLongDate.format(isoToDate(e.date))}`;
-  } else if (!next) {
-    detail = `${f.label} · terminé`;
-  } else if (e.frequency === 'monthly') {
-    detail = `Le ${dayLabel(parseISO(e.date).d)} de chaque mois`;
-  } else {
-    detail = `${f.label} · prochain le ${fmtLongDate.format(isoToDate(next))}`;
-  }
+  if (!next) detail = `${f.label} · terminé`;
+  else if (e.frequency === 'monthly') detail = `Le ${dayLabel(parseISO(e.date).d)} de chaque mois`;
+  else detail = `${f.label} · prochain le ${fmtLongDate.format(isoToDate(next))}`;
   if (e.note) detail += ` · ${esc(e.note)}`;
   const perMonth = f.months > 1 ? `<small>≈ ${eur.format(round2(e.amount / f.months))}/mois</small>` : '';
   return `
@@ -267,61 +280,77 @@ function subRow({ e, next }) {
     </li>`;
 }
 
-function group(title, rows, { total, collapsed } = {}) {
-  if (!rows.length) return '';
-  const right = total != null ? eur.format(round2(total)) : rows.length;
-  if (collapsed) {
-    return `
-      <details class="group">
-        <summary><h2 class="section"><span><span class="chev">›</span> ${title}</span><span>${right}</span></h2></summary>
-        <ul class="list">${rows.map(subRow).join('')}</ul>
-      </details>`;
-  }
-  return `<h2 class="section"><span>${title}</span><span>${right}</span></h2><ul class="list">${rows.map(subRow).join('')}</ul>`;
-}
-
-function renderSubs() {
+function renderSubsAll() {
   const today = todayISO();
-  const all = state.expenses.map((e) => ({ e, next: nextOccurrence(e, today) }));
-  const recurring = all.filter((x) => x.next && x.e.frequency !== 'once');
+  const all = subscriptions().map((e) => ({ e, next: nextOccurrence(e, today) }));
+  const active = all.filter((x) => x.next);
 
-  const monthlyAvg = recurring.reduce((s, x) => s + x.e.amount / FREQUENCIES[x.e.frequency].months, 0);
-  const yearly = recurring.reduce((s, x) => s + (x.e.amount * 12) / FREQUENCIES[x.e.frequency].months, 0);
+  const monthlyAvg = active.reduce((s, x) => s + x.e.amount / FREQUENCIES[x.e.frequency].months, 0);
   $('#subs-monthly').textContent = eur.format(round2(monthlyAvg));
-  $('#subs-yearly').textContent = eur.format(round2(yearly));
-  $('#subs-count').textContent = recurring.length;
+  $('#subs-yearly').textContent = eur.format(round2(monthlyAvg * 12));
+  $('#subs-count').textContent = active.length;
 
   const byDay = (a, b) => parseISO(a.e.date).d - parseISO(b.e.date).d || a.e.name.localeCompare(b.e.name, 'fr');
-  const byNext = (a, b) => a.next.localeCompare(b.next);
-  const sum = (rows) => rows.reduce((s, x) => s + x.e.amount, 0);
-
-  const monthly = recurring.filter((x) => x.e.frequency === 'monthly').sort(byDay);
-  const periodic = recurring.filter((x) => x.e.frequency !== 'monthly').sort(byNext);
-  const upcoming = all.filter((x) => x.next && x.e.frequency === 'once').sort(byNext);
+  const monthly = active.filter((x) => x.e.frequency === 'monthly').sort(byDay);
+  const periodic = active.filter((x) => x.e.frequency !== 'monthly').sort((a, b) => a.next.localeCompare(b.next));
   const done = all.filter((x) => !x.next).sort((a, b) => b.e.date.localeCompare(a.e.date));
 
   const html = [
-    group('Mensuelles', monthly, { total: sum(monthly) }),
-    group('Trimestrielles, semestrielles, annuelles', periodic),
-    group('Ponctuelles à venir', upcoming, { total: sum(upcoming) }),
-    group('Terminées', done, { collapsed: true }),
+    monthly.length ? section('Mensuels', eur.format(sumAmounts(monthly)), monthly.map(subRow).join('')) : '',
+    periodic.length ? section('Trimestriels, semestriels, annuels', periodic.length, periodic.map(subRow).join('')) : '',
+    done.length ? section('Terminés', done.length, done.map(subRow).join(''), true) : '',
   ].join('');
-
   $('#subs-groups').innerHTML = html ||
-    '<h2 class="section"><span>Liste</span></h2><ul class="list"><li class="empty">Aucune dépense pour l’instant.<br>Touche <b>+</b> pour en ajouter une.</li></ul>';
+    `<h2 class="section"><span>Liste</span></h2>${emptyList('Aucun abonnement pour l’instant.<br>Touche <b>+</b> pour ajouter le premier.')}`;
+}
+
+// ---------- Rendu : dépenses à prévoir ----------
+function renderPlanned() {
+  const now = currentMonth();
+  const thisKey = monthKey(now.y, now.m);
+  const next = addMonths(now, 1);
+  const nextKey = monthKey(next.y, next.m);
+  const items = plannedExpenses().map((e) => toOccurrence(e, e.date)).sort(byDate);
+  const inMonth = (k) => items.filter((it) => it.date.slice(0, 7) === k);
+
+  $('#planned-left').textContent = eur.format(sumAmounts(items.filter((it) => !it.paid)));
+  $('#planned-this').textContent = eur.format(sumAmounts(inMonth(thisKey)));
+  $('#planned-next').textContent = eur.format(sumAmounts(inMonth(nextKey)));
+
+  const months = new Map();
+  const past = [];
+  for (const it of items) {
+    const k = it.date.slice(0, 7);
+    if (k < thisKey) past.push(it);
+    else months.set(k, [...(months.get(k) || []), it]);
+  }
+
+  const html = [...months].map(([k, rows]) => {
+    const { y, m } = parseISO(`${k}-01`);
+    const hint = { [thisKey]: ' · ce mois-ci', [nextKey]: ' · mois prochain' }[k] || '';
+    return section(`${cap(fmtMonthYear.format(new Date(y, m, 1)))}${hint}`, eur.format(sumAmounts(rows)), rows.map(occRow).join(''));
+  });
+  if (!months.size) {
+    html.push(`<h2 class="section"><span>À venir</span></h2>${emptyList(
+      'Rien à prévoir pour l’instant.<br>Touche <b>+</b> pour ajouter une dépense<br>(contrôle technique, cadeau, vacances…).')}`);
+  }
+  if (past.length) html.push(section('Passées', past.length, past.reverse().map(occRow).join(''), true));
+  $('#planned-groups').innerHTML = html.join('');
 }
 
 function render() {
-  if (view === 'month') renderMonth();
   if (view === 'subs') renderSubs();
+  if (view === 'planned') renderPlanned();
   if (view === 'settings') renderCategories();
 }
 
 function setView(next) {
   view = next;
-  for (const v of ['month', 'subs', 'settings']) $(`#view-${v}`).hidden = v !== view;
+  for (const v of ['subs', 'planned', 'settings']) $(`#view-${v}`).hidden = v !== view;
   document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  $('#add-btn').hidden = view === 'settings';
+  const add = $('#add-btn');
+  add.hidden = view === 'settings';
+  add.setAttribute('aria-label', view === 'planned' ? 'Ajouter une dépense à prévoir' : 'Ajouter un abonnement');
   window.scrollTo(0, 0);
   render();
 }
@@ -331,7 +360,7 @@ const dialog = $('#form-dialog');
 const form = $('#expense-form');
 
 function fillFormOptions() {
-  $('#freq-chips').innerHTML = Object.entries(FREQUENCIES).map(([k, f]) =>
+  $('#freq-chips').innerHTML = Object.entries(FREQUENCIES).filter(([k]) => k !== 'once').map(([k, f]) =>
     `<label><input type="radio" name="frequency" value="${k}"><span>${f.label}</span></label>`).join('');
   $('#color-swatches').innerHTML = PALETTE.map((c) =>
     `<label><input type="radio" name="color" value="${c}" aria-label="Couleur ${c}"><span style="--c:${c}"></span></label>`).join('');
@@ -347,30 +376,39 @@ function fillCategorySelect(selected) {
 }
 
 function updateFormMode() {
-  const f = FREQUENCIES[form.elements.frequency.value] || FREQUENCIES.monthly;
-  $('#date-label').textContent = f.dateLabel;
-  $('#date-help').textContent = f.help;
-  $('#end-field').hidden = f.months === 0;
+  const planned = formKind === 'planned';
+  const f = planned ? FREQUENCIES.once : FREQUENCIES[form.elements.frequency.value] || FREQUENCIES.monthly;
+  $('#freq-field').hidden = planned;
+  $('#date-label').textContent = planned ? 'Date prévue' : f.dateLabel;
+  $('#date-help').textContent = planned ? 'Elle apparaîtra dans le mois correspondant.' : f.help;
+  $('#end-field').hidden = planned;
 }
 
 function defaultDate() {
   const now = currentMonth();
-  if (cursor.y === now.y && cursor.m === now.m) return todayISO();
+  const inOtherMonth = view === 'subs' && subsMode === 'month' && (cursor.y !== now.y || cursor.m !== now.m);
+  if (!inOtherMonth) return todayISO();
   return toISO(cursor.y, cursor.m, Math.min(new Date().getDate(), daysInMonth(cursor.y, cursor.m)));
 }
 
 function openForm(id) {
   const e = id ? state.expenses.find((x) => x.id === id) : null;
   editingId = e ? e.id : null;
+  formKind = (e ? isPlanned(e) : view === 'planned') ? 'planned' : 'sub';
+  const planned = formKind === 'planned';
   form.reset();
   $('#form-error').textContent = '';
-  $('#form-title').textContent = e ? 'Modifier' : 'Nouvelle dépense';
+  $('#form-title').textContent = planned
+    ? (e ? 'Modifier la dépense' : 'Dépense à prévoir')
+    : (e ? 'Modifier l’abonnement' : 'Nouvel abonnement');
+  $('#delete-btn').textContent = planned ? 'Supprimer cette dépense' : 'Supprimer cet abonnement';
   $('#delete-btn').hidden = !e;
 
   const el = form.elements;
+  el.name.placeholder = planned ? 'Ex : contrôle technique, cadeau, vacances' : 'Ex : Netflix, loyer, assurance auto';
   el.name.value = e ? e.name : '';
   el.amount.value = e ? String(e.amount).replace('.', ',') : '';
-  el.frequency.value = e ? e.frequency : 'monthly';
+  el.frequency.value = e && !planned ? e.frequency : 'monthly';
   el.date.value = e ? e.date : defaultDate();
   el.end.value = e && e.end ? e.end : '';
   fillCategorySelect(e ? e.category : '');
@@ -390,12 +428,12 @@ function submitForm(event) {
   const el = form.elements;
   const name = el.name.value.trim();
   const amount = round2(parseFloat(el.amount.value.replace(/[\s€]/g, '').replace(',', '.')));
-  const frequency = el.frequency.value;
+  const frequency = formKind === 'planned' ? 'once' : el.frequency.value;
   const date = el.date.value;
   const end = frequency !== 'once' && el.end.value ? el.end.value : '';
   const error = $('#form-error');
 
-  if (!name) { error.textContent = 'Donne un nom à cette dépense.'; el.name.focus(); return; }
+  if (!name) { error.textContent = 'Indique un nom.'; el.name.focus(); return; }
   if (!Number.isFinite(amount) || amount <= 0) { error.textContent = 'Indique un montant valide (ex : 12,99).'; el.amount.focus(); return; }
   if (!FREQUENCIES[frequency]) { error.textContent = 'Choisis une fréquence.'; return; }
   if (!date) { error.textContent = 'Choisis une date.'; el.date.focus(); return; }
@@ -408,7 +446,7 @@ function submitForm(event) {
     toast('Modifications enregistrées');
   } else {
     state.expenses.push({ id: uid(), ...data });
-    toast('Dépense ajoutée');
+    toast(formKind === 'planned' ? 'Dépense à prévoir ajoutée' : 'Abonnement ajouté');
   }
   save();
   closeForm();
@@ -423,7 +461,7 @@ function deleteExpense() {
   save();
   closeForm();
   render();
-  toast('Dépense supprimée');
+  toast('Supprimé');
 }
 
 // ---------- Catégories ----------
@@ -575,16 +613,21 @@ function updateInstallState() {
 
 // ---------- Événements ----------
 function bind() {
-  $('#prev-month').addEventListener('click', () => { cursor = addMonths(cursor, -1); renderMonth(); });
-  $('#next-month').addEventListener('click', () => { cursor = addMonths(cursor, 1); renderMonth(); });
+  $('#prev-month').addEventListener('click', () => { cursor = addMonths(cursor, -1); renderSubs(); });
+  $('#next-month').addEventListener('click', () => { cursor = addMonths(cursor, 1); renderSubs(); });
   document.querySelectorAll('[data-jump]').forEach((b) => b.addEventListener('click', () => {
-    cursor = addMonths(currentMonth(), Number(b.dataset.jump));
-    renderMonth();
+    if (b.dataset.jump === 'all') {
+      subsMode = 'all';
+    } else {
+      subsMode = 'month';
+      cursor = addMonths(currentMonth(), Number(b.dataset.jump));
+    }
+    renderSubs();
   }));
 
   document.querySelectorAll('.tabbar button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
 
-  $('#occ-list').addEventListener('change', (e) => {
+  document.addEventListener('change', (e) => {
     const key = e.target.dataset.paid;
     if (!key) return;
     const date = e.target.dataset.date;
@@ -592,7 +635,7 @@ function bind() {
     if (e.target.checked === autoPaid(date)) delete state.paid[key];
     else state.paid[key] = e.target.checked;
     save();
-    renderMonth();
+    render();
   });
 
   document.addEventListener('click', (e) => {
@@ -646,7 +689,7 @@ fillFormOptions();
 bind();
 updateInstallState();
 $('#version').textContent = `Budget v${APP_VERSION}`;
-setView('month');
+setView('subs');
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));

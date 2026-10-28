@@ -1,5 +1,5 @@
 // Incrémenter la version à chaque mise à jour des fichiers de l'app
-const CACHE = 'budget-v2';
+const CACHE = 'budget-v3';
 const ASSETS = [
   './',
   'index.html',

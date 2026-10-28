@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="description" content="Mes dépenses fixes et ce qu'il faut prévoir ce mois-ci">
+  <meta name="description" content="Mes abonnements et mes dépenses à prévoir">
   <meta name="theme-color" content="#f4f5f2" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0e1312" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -18,54 +18,70 @@
 </head>
 <body>
   <main>
-    <!-- Vue : mois -->
-    <section id="view-month" class="view">
-      <div class="month-nav">
-        <button type="button" class="icon-btn" id="prev-month" aria-label="Mois précédent">‹</button>
-        <div class="month-title">
-          <h1 id="month-label">Mois</h1>
-          <small id="month-hint"></small>
-        </div>
-        <button type="button" class="icon-btn" id="next-month" aria-label="Mois suivant">›</button>
-      </div>
-
-      <div class="segmented" role="group" aria-label="Raccourcis">
+    <!-- Onglet : abonnements (dépenses récurrentes) -->
+    <section id="view-subs" class="view">
+      <h1>Abonnements</h1>
+      <div class="segmented" role="group" aria-label="Période">
         <button type="button" data-jump="0">Ce mois</button>
         <button type="button" data-jump="1">Mois prochain</button>
+        <button type="button" data-jump="all">Tous</button>
       </div>
 
-      <div class="card summary">
-        <div class="total-label">Total à prévoir</div>
-        <div class="total" id="month-total">0,00 €</div>
-        <div class="progress" aria-hidden="true"><span id="month-progress"></span></div>
-        <div class="stats">
-          <div class="stat"><small>Déjà payé</small><b id="month-paid">0,00 €</b></div>
-          <div class="stat"><small>Reste à payer</small><b id="month-left">0,00 €</b></div>
+      <div id="subs-month">
+        <div class="month-nav">
+          <button type="button" class="icon-btn" id="prev-month" aria-label="Mois précédent">‹</button>
+          <div class="month-title">
+            <b id="month-label">Mois</b>
+            <small id="month-hint"></small>
+          </div>
+          <button type="button" class="icon-btn" id="next-month" aria-label="Mois suivant">›</button>
         </div>
-        <p class="callout" id="month-extra" hidden></p>
+
+        <div class="card summary">
+          <div class="total-label">Total des abonnements</div>
+          <div class="total" id="month-total">0,00 €</div>
+          <div class="progress" aria-hidden="true"><span id="month-progress"></span></div>
+          <div class="stats">
+            <div class="stat"><small>Déjà payé</small><b id="month-paid">0,00 €</b></div>
+            <div class="stat"><small>Reste à payer</small><b id="month-left">0,00 €</b></div>
+          </div>
+          <p class="callout" id="month-extra" hidden></p>
+        </div>
+
+        <h2 class="section"><span>Prélèvements</span><span id="month-count"></span></h2>
+        <ul class="list" id="occ-list"></ul>
+
+        <div id="cat-section">
+          <h2 class="section"><span>Par catégorie</span></h2>
+          <ul class="list cats" id="cat-list"></ul>
+        </div>
       </div>
 
-      <h2 class="section"><span>Échéances</span><span id="month-count"></span></h2>
-      <ul class="list" id="occ-list"></ul>
-
-      <div id="cat-section">
-        <h2 class="section"><span>Par catégorie</span></h2>
-        <ul class="list cats" id="cat-list"></ul>
+      <div id="subs-all" hidden>
+        <div class="card summary">
+          <div class="total-label">Coût moyen par mois</div>
+          <div class="total" id="subs-monthly">0,00 €</div>
+          <div class="stats">
+            <div class="stat"><small>Sur un an</small><b id="subs-yearly">0,00 €</b></div>
+            <div class="stat"><small>Abonnements actifs</small><b id="subs-count">0</b></div>
+          </div>
+        </div>
+        <div id="subs-groups"></div>
       </div>
     </section>
 
-    <!-- Vue : toutes les dépenses -->
-    <section id="view-subs" class="view" hidden>
-      <h1>Mes dépenses</h1>
+    <!-- Onglet : dépenses à prévoir (ponctuelles) -->
+    <section id="view-planned" class="view" hidden>
+      <h1>À prévoir</h1>
       <div class="card summary">
-        <div class="total-label">Coût fixe moyen par mois</div>
-        <div class="total" id="subs-monthly">0,00 €</div>
+        <div class="total-label">Reste à payer</div>
+        <div class="total" id="planned-left">0,00 €</div>
         <div class="stats">
-          <div class="stat"><small>Sur un an</small><b id="subs-yearly">0,00 €</b></div>
-          <div class="stat"><small>Récurrentes</small><b id="subs-count">0</b></div>
+          <div class="stat"><small>Ce mois-ci</small><b id="planned-this">0,00 €</b></div>
+          <div class="stat"><small>Mois prochain</small><b id="planned-next">0,00 €</b></div>
         </div>
       </div>
-      <div id="subs-groups"></div>
+      <div id="planned-groups"></div>
     </section>
 
     <!-- Vue : réglages -->
@@ -105,16 +121,16 @@
     </section>
   </main>
 
-  <button type="button" class="fab" id="add-btn" aria-label="Ajouter une dépense">+</button>
+  <button type="button" class="fab" id="add-btn" aria-label="Ajouter un abonnement">+</button>
 
   <nav class="tabbar" aria-label="Navigation">
-    <button type="button" data-view="month" class="active">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
-      Mois
+    <button type="button" data-view="subs" class="active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg>
+      Abonnements
     </button>
-    <button type="button" data-view="subs">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></svg>
-      Dépenses
+    <button type="button" data-view="planned">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18M12 13v5M9.5 15.5h5"/></svg>
+      À prévoir
     </button>
     <button type="button" data-view="settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -139,7 +155,7 @@
           <span>Montant (€)</span>
           <input name="amount" inputmode="decimal" placeholder="0,00" autocomplete="off" required>
         </label>
-        <fieldset class="field">
+        <fieldset class="field" id="freq-field">
           <legend>Fréquence</legend>
           <div class="chips" id="freq-chips"></div>
         </fieldset>
